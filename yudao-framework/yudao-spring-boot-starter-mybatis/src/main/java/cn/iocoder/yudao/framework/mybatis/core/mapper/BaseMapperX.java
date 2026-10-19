@@ -5,6 +5,7 @@ import cn.iocoder.yudao.framework.common.pojo.PageParam;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.pojo.SortablePageParam;
 import cn.iocoder.yudao.framework.common.pojo.SortingField;
+import cn.iocoder.yudao.framework.common.util.object.PageUtils;
 import cn.iocoder.yudao.framework.mybatis.core.util.JdbcUtils;
 import cn.iocoder.yudao.framework.mybatis.core.util.MyBatisUtils;
 import com.baomidou.mybatisplus.annotation.DbType;
@@ -44,7 +45,7 @@ public interface BaseMapperX<T> extends MPJBaseMapper<T> {
         if (PageParam.PAGE_SIZE_NONE.equals(pageParam.getPageSize())) {
             MyBatisUtils.addOrder(queryWrapper, sortingFields);
             List<T> list = selectList(queryWrapper);
-            return new PageResult<>(list, (long) list.size());
+            return PageUtils.buildPageResult(pageParam, list);
         }
 
         // MyBatis Plus 查询
@@ -58,7 +59,7 @@ public interface BaseMapperX<T> extends MPJBaseMapper<T> {
         // 特殊：不分页，直接查询全部
         if (PageParam.PAGE_SIZE_NONE.equals(pageParam.getPageSize())) {
             List<D> list = selectJoinList(clazz, lambdaWrapper);
-            return new PageResult<>(list, (long) list.size());
+            return PageUtils.buildPageResult(pageParam, list);
         }
 
         // MyBatis Plus Join 查询
@@ -81,7 +82,7 @@ public interface BaseMapperX<T> extends MPJBaseMapper<T> {
         // 特殊：不分页，直接查询全部
         if (PageParam.PAGE_SIZE_NONE.equals(pageParam.getPageSize())) {
             List<D> list = selectJoinList(clazz, lambdaWrapper);
-            return new PageResult<>(list, (long) list.size());
+            return PageUtils.buildPageResult(pageParam, list);
         }
 
         // MyBatis Plus Join 查询
@@ -145,6 +146,18 @@ public interface BaseMapperX<T> extends MPJBaseMapper<T> {
     }
 
     /**
+     * 获得满足条件的第 1 条记录，并使用 FOR UPDATE 锁定。
+     *
+     * 注意：需要在事务中调用，否则锁会立即释放。
+     *
+     * @param queryWrapper 查询条件
+     * @return 实体
+     */
+    default T selectFirstOneForUpdate(LambdaQueryWrapper<T> queryWrapper) {
+        return selectOne(queryWrapper.last("LIMIT 1 FOR UPDATE"));
+    }
+
+    /**
      * 获取满足条件的第 1 条记录
      *
      * 目的：解决并发场景下，插入多条记录后，使用 selectOne 会报错的问题
@@ -170,6 +183,17 @@ public interface BaseMapperX<T> extends MPJBaseMapper<T> {
         return CollUtil.getFirst(list);
     }
 
+    /**
+     * 获取满足条件的最新一条记录
+     * <p>
+     * 目的：解决并发场景下，插入多条记录后，使用 selectOne 会报错的问题
+     *
+     * @param queryWrapper 查询条件
+     * @return 最新一条；不存在返回 null
+     */
+    default T selectLastOne(LambdaQueryWrapper<T> queryWrapper) {
+        return CollUtil.getLast(selectList(queryWrapper));
+    }
 
     default Long selectCount() {
         return selectCount(new QueryWrapper<>());

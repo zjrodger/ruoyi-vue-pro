@@ -40,6 +40,7 @@ import javax.annotation.Resource;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -77,7 +78,6 @@ public class CombinationRecordServiceImpl implements CombinationRecordService {
     @Resource
     public SocialClientApi socialClientApi;
 
-    // TODO @芋艿：在详细预览下；
     @Override
     public KeyValue<CombinationActivityDO, CombinationProductDO> validateCombinationRecord(
             Long userId, Long activityId, Long headId, Long skuId, Integer count) {
@@ -97,7 +97,7 @@ public class CombinationRecordServiceImpl implements CombinationRecordService {
         }
 
         // 2. 父拼团是否存在,是否已经满了
-        if (headId != null) {
+        if (isJoinCombination(headId)) {
             // 2.1. 查询进行中的父拼团
             CombinationRecordDO record = combinationRecordMapper.selectByHeadId(headId, CombinationRecordStatusEnum.IN_PROGRESS.getStatus());
             if (record == null) {
@@ -129,7 +129,7 @@ public class CombinationRecordServiceImpl implements CombinationRecordService {
             throw exception(COMBINATION_JOIN_ACTIVITY_PRODUCT_NOT_EXISTS);
         }
         // 4.3 校验库存是否充足
-        if (count >= sku.getStock()) {
+        if (count > sku.getStock()) {
             throw exception(COMBINATION_ACTIVITY_UPDATE_STOCK_FAIL);
         }
 
@@ -153,6 +153,16 @@ public class CombinationRecordServiceImpl implements CombinationRecordService {
         return new KeyValue<>(activity, product);
     }
 
+    /**
+     * 是否加入已有拼团。
+     *
+     * 前端开团时可能不传 headId，也可能传 {@link CombinationRecordDO#HEAD_ID_GROUP}，都应视为新开团；
+     * 只有传入真实团长记录编号时，才需要按参团校验父拼团。
+     */
+    private static boolean isJoinCombination(Long headId) {
+        return headId != null && ObjUtil.notEqual(headId, CombinationRecordDO.HEAD_ID_GROUP);
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public CombinationRecordDO createCombinationRecord(CombinationRecordCreateReqDTO reqDTO) {
@@ -166,7 +176,7 @@ public class CombinationRecordServiceImpl implements CombinationRecordService {
         ProductSkuRespDTO sku = productSkuApi.getSku(reqDTO.getSkuId());
         CombinationRecordDO record = CombinationActivityConvert.INSTANCE.convert(reqDTO, keyValue.getKey(), user, spu, sku);
         // 2.1. 如果是团长需要设置 headId 为 CombinationRecordDO#HEAD_ID_GROUP
-        if (record.getHeadId() == null) {
+        if (!isJoinCombination(record.getHeadId())) {
             record.setStartTime(LocalDateTime.now())
                     .setExpireTime(LocalDateTime.now().plusHours(keyValue.getKey().getLimitDuration()))
                     .setHeadId(CombinationRecordDO.HEAD_ID_GROUP);
@@ -275,6 +285,14 @@ public class CombinationRecordServiceImpl implements CombinationRecordService {
     @Override
     public List<CombinationRecordDO> getCombinationRecordListByHeadId(Long headId) {
         return combinationRecordMapper.selectList(CombinationRecordDO::getHeadId, headId);
+    }
+
+    @Override
+    public List<CombinationRecordDO> getCombinationRecordListByIds(Collection<Long> ids) {
+        if (CollUtil.isEmpty(ids)) {
+            return Collections.emptyList();
+        }
+        return combinationRecordMapper.selectByIds(ids);
     }
 
     @Override

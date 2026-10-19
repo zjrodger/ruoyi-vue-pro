@@ -157,6 +157,23 @@ public class MailTemplateServiceImplTest extends BaseDbUnitTest {
     }
 
     @Test
+    public void testGetMailTemplateListByStatus() {
+        // mock 数据
+        MailTemplateDO dbMailTemplate = randomPojo(MailTemplateDO.class,
+                o -> o.setStatus(CommonStatusEnum.ENABLE.getStatus()));
+        mailTemplateMapper.insert(dbMailTemplate);
+        mailTemplateMapper.insert(cloneIgnoreId(dbMailTemplate,
+                o -> o.setStatus(CommonStatusEnum.DISABLE.getStatus())));
+
+        // 调用
+        List<MailTemplateDO> list = mailTemplateService.getMailTemplateListByStatus(
+                CommonStatusEnum.ENABLE.getStatus());
+        // 断言
+        assertEquals(1, list.size());
+        assertPojoEquals(dbMailTemplate, list.get(0));
+    }
+
+    @Test
     public void testGetMailTemplate() {
         // mock 数据
         MailTemplateDO dbMailTemplate = randomPojo(MailTemplateDO.class);
@@ -379,6 +396,20 @@ public class MailTemplateServiceImplTest extends BaseDbUnitTest {
         assertFalse(formattedContent.contains("{email}"));
         assertFalse(formattedContent.contains("{role}"));
         assertFalse(formattedContent.contains("{activationLink}"));
+    }
+
+    @Test
+    public void testFormatMailTemplateContent_dollarInCodeBlock() {
+        // 准备参数
+        Map<String, Object> params = new HashMap<>();
+
+        // 测试代码块中包含 $ 与 \\（历史上 appendReplacement 会抛 IllegalArgumentException: Illegal group reference）
+        String content = "<pre><code>echo $HOME && ls \\root</code></pre>";
+
+        // 调用，并断言内容原样保留
+        String result = mailTemplateService.formatMailTemplateContent(content, params);
+        assertTrue(result.contains("echo $HOME && ls \\root"));
+        assertTrue(result.contains("<div><code>"));
     }
 
 }

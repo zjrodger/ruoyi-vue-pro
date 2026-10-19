@@ -30,9 +30,13 @@
 
         <!-- 消息队列相关 -->
         <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
             <groupId>org.apache.rocketmq</groupId>
             <artifactId>rocketmq-spring-boot-starter</artifactId>
-            <!-- TODO @芋艿：消息队列，后续可能去掉，默认不使用 rocketmq -->
             <optional>true</optional>
         </dependency>
 
@@ -65,6 +69,18 @@
             <groupId>cn.iocoder.boot</groupId>
             <artifactId>yudao-spring-boot-starter-test</artifactId>
             <scope>test</scope>
+        </dependency>
+
+        <!-- 对齐 OkHttp 5 所需的 Kotlin、Okio，避免旧版依赖导致启动或 RPC 请求失败 -->
+        <dependency>
+            <groupId>org.jetbrains.kotlin</groupId>
+            <artifactId>kotlin-stdlib</artifactId>
+            <version>2.1.21</version>
+        </dependency>
+        <dependency>
+            <groupId>com.squareup.okio</groupId>
+            <artifactId>okio-jvm</artifactId>
+            <version>3.18.1</version>
         </dependency>
     </dependencies>
 

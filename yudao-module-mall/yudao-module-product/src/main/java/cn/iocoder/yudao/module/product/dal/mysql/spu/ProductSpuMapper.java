@@ -76,14 +76,15 @@ public interface ProductSpuMapper extends BaseMapperX<ProductSpuDO> {
         query.eq(ProductSpuDO::getStatus, ProductSpuStatusEnum.ENABLE.getStatus());
 
         // 排序逻辑
+        Boolean sortAsc = pageReqVO.getSortAsc() != null ? pageReqVO.getSortAsc() : Boolean.TRUE;
         if (Objects.equals(pageReqVO.getSortField(), AppProductSpuPageReqVO.SORT_FIELD_SALES_COUNT)) {
             query.last(String.format(" ORDER BY (sales_count + virtual_sales_count) %s, sort DESC, id DESC",
-                    pageReqVO.getSortAsc() ? "ASC" : "DESC"));
+                    sortAsc ? "ASC" : "DESC"));
         } else if (Objects.equals(pageReqVO.getSortField(), AppProductSpuPageReqVO.SORT_FIELD_PRICE)) {
-            query.orderBy(true, pageReqVO.getSortAsc(), ProductSpuDO::getPrice)
+            query.orderBy(true, sortAsc, ProductSpuDO::getPrice)
                     .orderByDesc(ProductSpuDO::getSort).orderByDesc(ProductSpuDO::getId);
         } else if (Objects.equals(pageReqVO.getSortField(), AppProductSpuPageReqVO.SORT_FIELD_CREATE_TIME)) {
-            query.orderBy(true, pageReqVO.getSortAsc(), ProductSpuDO::getCreateTime)
+            query.orderBy(true, sortAsc, ProductSpuDO::getCreateTime)
                     .orderByDesc(ProductSpuDO::getSort).orderByDesc(ProductSpuDO::getId);
         } else {
             query.orderByDesc(ProductSpuDO::getSort).orderByDesc(ProductSpuDO::getId);
@@ -144,6 +145,22 @@ public interface ProductSpuMapper extends BaseMapperX<ProductSpuDO> {
         if (ObjectUtil.equals(ProductSpuPageReqVO.RECYCLE_BIN, tabType)) {
             query.eqIfPresent(ProductSpuDO::getStatus, ProductSpuStatusEnum.RECYCLE.getStatus());
         }
+    }
+
+    /**
+     * 按筛选条件 + Tab 统计商品 SPU 数量（用于带筛选的 tab count）
+     *
+     * @param reqVO   筛选条件（name/categoryId/createTime）
+     * @param tabType Tab 标签类型
+     * @return 数量
+     */
+    default Long selectCountByTab(ProductSpuPageReqVO reqVO, Integer tabType) {
+        LambdaQueryWrapperX<ProductSpuDO> queryWrapper = new LambdaQueryWrapperX<ProductSpuDO>()
+                .likeIfPresent(ProductSpuDO::getName, reqVO.getName())
+                .eqIfPresent(ProductSpuDO::getCategoryId, reqVO.getCategoryId())
+                .betweenIfPresent(ProductSpuDO::getCreateTime, reqVO.getCreateTime());
+        appendTabQuery(tabType, queryWrapper);
+        return selectCount(queryWrapper);
     }
 
     /**

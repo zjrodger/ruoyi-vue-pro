@@ -2,6 +2,7 @@ package cn.iocoder.yudao.module.system.service.user;
 
 import cn.hutool.core.util.RandomUtil;
 import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
+import cn.iocoder.yudao.framework.common.enums.UserTypeEnum;
 import cn.iocoder.yudao.framework.common.exception.ServiceException;
 import cn.iocoder.yudao.framework.common.pojo.PageResult;
 import cn.iocoder.yudao.framework.common.util.collection.ArrayUtils;
@@ -18,15 +19,19 @@ import cn.iocoder.yudao.module.system.controller.admin.user.vo.user.UserSaveReqV
 import cn.iocoder.yudao.module.system.dal.dataobject.dept.DeptDO;
 import cn.iocoder.yudao.module.system.dal.dataobject.dept.PostDO;
 import cn.iocoder.yudao.module.system.dal.dataobject.dept.UserPostDO;
+import cn.iocoder.yudao.module.system.dal.dataobject.permission.RoleDO;
 import cn.iocoder.yudao.module.system.dal.dataobject.tenant.TenantDO;
 import cn.iocoder.yudao.module.system.dal.dataobject.user.AdminUserDO;
 import cn.iocoder.yudao.module.system.dal.mysql.dept.UserPostMapper;
 import cn.iocoder.yudao.module.system.dal.mysql.user.AdminUserMapper;
 import cn.iocoder.yudao.module.system.enums.common.SexEnum;
+import cn.iocoder.yudao.module.system.enums.permission.RoleCodeEnum;
+import cn.iocoder.yudao.module.system.mq.producer.user.AdminUserProducer;
 import cn.iocoder.yudao.module.system.service.dept.DeptService;
 import cn.iocoder.yudao.module.system.service.dept.PostService;
 import cn.iocoder.yudao.module.system.service.oauth2.OAuth2TokenService;
 import cn.iocoder.yudao.module.system.service.permission.PermissionService;
+import cn.iocoder.yudao.module.system.service.permission.RoleService;
 import cn.iocoder.yudao.module.system.service.tenant.TenantService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -76,6 +81,8 @@ public class AdminUserServiceImplTest extends BaseDbUnitTest {
     @MockBean
     private PermissionService permissionService;
     @MockBean
+    private RoleService roleService;
+    @MockBean
     private PasswordEncoder passwordEncoder;
     @MockBean
     private TenantService tenantService;
@@ -85,6 +92,8 @@ public class AdminUserServiceImplTest extends BaseDbUnitTest {
     private ConfigApi configApi;
     @MockBean
     private OAuth2TokenService oauth2TokenService;
+    @MockBean
+    private AdminUserProducer adminUserProducer;
 
     @BeforeEach
     public void before() {
@@ -275,13 +284,43 @@ public class AdminUserServiceImplTest extends BaseDbUnitTest {
         userMapper.insert(dbUser);
         // 准备参数
         Long userId = dbUser.getId();
-        Integer status = randomCommonStatus();
+        Integer status = CommonStatusEnum.DISABLE.getStatus();
 
         // 调用
         userService.updateUserStatus(userId, status);
         // 断言
         AdminUserDO user = userMapper.selectById(userId);
         assertEquals(status, user.getStatus());
+        verify(oauth2TokenService).removeAccessToken(userId, UserTypeEnum.ADMIN.getValue());
+    }
+
+    @Test
+    public void testUpdateUserStatus_adminCannotDisable() {
+        for (RoleCodeEnum roleCode : new RoleCodeEnum[]{RoleCodeEnum.SUPER_ADMIN, RoleCodeEnum.TENANT_ADMIN}) {
+            // mock 数据
+            AdminUserDO dbUser = randomAdminUserDO(o -> o.setStatus(CommonStatusEnum.ENABLE.getStatus()));
+            userMapper.insert(dbUser);
+            mockUserRole(dbUser.getId(), roleCode);
+
+            // 调用，并断言异常
+            assertServiceException(() -> userService.updateUserStatus(dbUser.getId(), CommonStatusEnum.DISABLE.getStatus()),
+                    USER_ADMIN_NOT_ALLOW_DISABLE);
+            assertEquals(CommonStatusEnum.ENABLE.getStatus(), userMapper.selectById(dbUser.getId()).getStatus());
+        }
+        verify(oauth2TokenService, never()).removeAccessToken(anyLong(), anyInt());
+    }
+
+    @Test
+    public void testUpdateUserStatus_adminCanEnable() {
+        // mock 数据
+        AdminUserDO dbUser = randomAdminUserDO(o -> o.setStatus(CommonStatusEnum.DISABLE.getStatus()));
+        userMapper.insert(dbUser);
+        mockUserRole(dbUser.getId(), RoleCodeEnum.TENANT_ADMIN);
+
+        // 调用
+        userService.updateUserStatus(dbUser.getId(), CommonStatusEnum.ENABLE.getStatus());
+        // 断言
+        assertEquals(CommonStatusEnum.ENABLE.getStatus(), userMapper.selectById(dbUser.getId()).getStatus());
     }
 
     @Test
@@ -298,6 +337,43 @@ public class AdminUserServiceImplTest extends BaseDbUnitTest {
         assertNull(userMapper.selectById(userId));
         // 校验调用次数
         verify(permissionService, times(1)).processUserDeleted(eq(userId));
+    }
+
+    @Test
+    public void testDeleteUser_adminCannotDelete() {
+        for (RoleCodeEnum roleCode : new RoleCodeEnum[]{RoleCodeEnum.SUPER_ADMIN, RoleCodeEnum.TENANT_ADMIN}) {
+            // mock 数据
+            AdminUserDO dbUser = randomAdminUserDO();
+            userMapper.insert(dbUser);
+            mockUserRole(dbUser.getId(), roleCode);
+
+            // 调用，并断言异常
+            assertServiceException(() -> userService.deleteUser(dbUser.getId()), USER_ADMIN_NOT_ALLOW_DELETE);
+            assertNotNull(userMapper.selectById(dbUser.getId()));
+        }
+    }
+
+    @Test
+    public void testDeleteUserList_adminCannotDelete() {
+        // mock 数据
+        AdminUserDO ordinaryUser = randomAdminUserDO();
+        userMapper.insert(ordinaryUser);
+        AdminUserDO adminUser = randomAdminUserDO();
+        userMapper.insert(adminUser);
+        mockUserRole(adminUser.getId(), RoleCodeEnum.TENANT_ADMIN);
+
+        // 调用，并断言整批未删除
+        assertServiceException(() -> userService.deleteUserList(newArrayList(ordinaryUser.getId(), adminUser.getId())),
+                USER_ADMIN_NOT_ALLOW_DELETE);
+        assertNotNull(userMapper.selectById(ordinaryUser.getId()));
+        assertNotNull(userMapper.selectById(adminUser.getId()));
+    }
+
+    private void mockUserRole(Long userId, RoleCodeEnum roleCode) {
+        Long roleId = 100L;
+        when(permissionService.getUserRoleIdListByUserId(userId)).thenReturn(asSet(roleId));
+        when(roleService.getRoleList(asSet(roleId))).thenReturn(singletonList(
+                randomPojo(RoleDO.class, role -> role.setCode(roleCode.getCode()))));
     }
 
     @Test
@@ -528,6 +604,29 @@ public class AdminUserServiceImplTest extends BaseDbUnitTest {
     }
 
     @Test
+    public void testImportUserList_adminCannotDisable() {
+        // mock 数据
+        AdminUserDO dbUser = randomAdminUserDO(o -> o.setStatus(CommonStatusEnum.ENABLE.getStatus()));
+        userMapper.insert(dbUser);
+        mockUserRole(dbUser.getId(), RoleCodeEnum.TENANT_ADMIN);
+        // 准备参数
+        UserImportExcelVO importUser = randomPojo(UserImportExcelVO.class, o -> {
+            o.setUsername(dbUser.getUsername());
+            o.setStatus(CommonStatusEnum.DISABLE.getStatus());
+            o.setSex(randomEle(SexEnum.values()).getSex());
+            o.setEmail(randomEmail());
+            o.setMobile(randomMobile());
+        });
+
+        // 调用
+        UserImportRespVO respVO = userService.importUserList(singletonList(importUser), true);
+        // 断言
+        assertEquals(USER_ADMIN_NOT_ALLOW_DISABLE.getMsg(), respVO.getFailureUsernames().get(importUser.getUsername()));
+        assertTrue(respVO.getUpdateUsernames().isEmpty());
+        assertEquals(CommonStatusEnum.ENABLE.getStatus(), userMapper.selectById(dbUser.getId()).getStatus());
+    }
+
+    @Test
     public void testValidateUserExists_notExists() {
         assertServiceException(() -> userService.validateUserExists(randomLongId()), USER_NOT_EXISTS);
     }
@@ -716,6 +815,52 @@ public class AdminUserServiceImplTest extends BaseDbUnitTest {
         // 断言
         assertEquals(1, result.size());
         assertEquals(user, result.get(0));
+    }
+
+    @Test
+    public void testGetUserListByStatusAndDeptId() {
+        // mock 数据
+        AdminUserDO user = randomAdminUserDO(o -> o.setStatus(CommonStatusEnum.ENABLE.getStatus()).setDeptId(1L));
+        userMapper.insert(user);
+        // 测试 status 不匹配
+        userMapper.insert(cloneIgnoreId(user, o -> o.setStatus(CommonStatusEnum.DISABLE.getStatus())));
+        // 测试 deptId 不匹配
+        userMapper.insert(cloneIgnoreId(user, o -> o.setDeptId(2L)));
+
+        // 调用
+        List<AdminUserDO> result = userService.getUserListByStatus(CommonStatusEnum.ENABLE.getStatus(), 1L);
+        // 断言
+        assertEquals(1, result.size());
+        assertEquals(user, result.get(0));
+    }
+
+    @Test
+    public void testValidateUser_success() {
+        // mock 数据
+        AdminUserDO user = randomAdminUserDO().setStatus(CommonStatusEnum.ENABLE.getStatus());
+        userMapper.insert(user);
+
+        // 调用
+        AdminUserDO result = userService.validateUser(user.getId());
+
+        // 断言
+        assertEquals(user, result);
+    }
+
+    @Test
+    public void testValidateUser_notFound() {
+        // 调用，并断言异常
+        assertServiceException(() -> userService.validateUser(randomLongId()), USER_NOT_EXISTS);
+    }
+
+    @Test
+    public void testValidateUser_notEnable() {
+        // mock 数据
+        AdminUserDO user = randomAdminUserDO().setStatus(CommonStatusEnum.DISABLE.getStatus());
+        userMapper.insert(user);
+
+        // 调用，并断言异常
+        assertServiceException(() -> userService.validateUser(user.getId()), USER_IS_DISABLE, user.getNickname());
     }
 
     @Test

@@ -165,6 +165,14 @@ public interface CrmBusinessService {
     Long getBusinessCountByCustomerId(Long customerId);
 
     /**
+     * 获得引用指定产品的商机产品数量
+     *
+     * @param productId 产品编号
+     * @return 数量
+     */
+    Long getBusinessProductCountByProductId(Long productId);
+
+    /**
      * 获得使用指定商机状态组的商机数量
      *
      * @param statusTypeId 商机状态组编号
@@ -194,6 +202,22 @@ public interface CrmBusinessService {
      * @return 商机列表
      */
     List<CrmBusinessDO> getBusinessListByCustomerIdOwnerUserId(Long customerId, Long ownerUserId);
+
+    /**
+     * 获得商机列表，基于指定客户
+     *
+     * @param customerId 客户编号
+     * @return 商机列表
+     */
+    List<CrmBusinessDO> getBusinessListByCustomerId(Long customerId);
+
+    /**
+     * 获得商机列表，基于指定联系人
+     *
+     * @param contactId 联系人编号
+     * @return 商机列表
+     */
+    List<CrmBusinessDO> getBusinessListByContact(Long contactId);
 
     /**
      * 获得商机分页，目前用于【数据统计】
